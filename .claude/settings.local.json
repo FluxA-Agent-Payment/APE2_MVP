@@ -4,7 +4,10 @@
       "Bash(chmod:*)",
       "Bash(tree:*)",
       "WebSearch",
-      "Bash(npm run payee:*)"
+      "Bash(npm run payee:*)",
+      "Bash(npx create-next-app:*)",
+      "Bash(npm install:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
