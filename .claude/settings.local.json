@@ -14,7 +14,8 @@
       "Bash(npm run setup:*)",
       "Bash(python3:*)",
       "Bash(npm run build:*)",
-      "Bash(node dist/services/sp-v2.js:*)"
+      "Bash(node dist/services/sp-v2.js:*)",
+      "Read(//Users/cppppppp/**)"
     ],
     "deny": [],
     "ask": []

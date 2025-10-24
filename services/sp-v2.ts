@@ -88,12 +88,26 @@ const DB_FILE = path.join(SP_DATA_DIR, ".sp-data.db");
 
 // Create .sp_data directory if it doesn't exist
 if (!fs.existsSync(SP_DATA_DIR)) {
-  fs.mkdirSync(SP_DATA_DIR, { recursive: true });
+  fs.mkdirSync(SP_DATA_DIR, { recursive: true, mode: 0o755 });
   console.log(`[INIT] Created data directory: ${SP_DATA_DIR}`);
+}
+
+// Ensure directory is writable
+try {
+  fs.accessSync(SP_DATA_DIR, fs.constants.W_OK);
+} catch (error) {
+  console.error(`[ERROR] Directory ${SP_DATA_DIR} is not writable`);
+  console.error(`[ERROR] Please run: chmod 755 ${SP_DATA_DIR}`);
+  process.exit(1);
 }
 
 const db = new Database(DB_FILE);
 console.log(`[INIT] Database location: ${DB_FILE}`);
+
+// Ensure database file has correct permissions
+if (fs.existsSync(DB_FILE)) {
+  fs.chmodSync(DB_FILE, 0o644);
+}
 
 // Create tables
 db.exec(`
