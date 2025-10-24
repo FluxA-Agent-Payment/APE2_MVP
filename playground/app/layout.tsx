@@ -34,9 +34,6 @@ export default function RootLayout({
               accentColor: "#9333ea",
             },
             loginMethods: ["google", "email"],
-            embeddedWallets: {
-              createOnLogin: "users-without-wallets",
-            },
             defaultChain: {
               id: 84532,
               name: "Base Sepolia",
