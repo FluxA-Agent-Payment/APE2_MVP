@@ -4,7 +4,11 @@ This repo is a minimal viable product implementation of the Agent Embedded Payme
 
 AEP2 is an embedded payment protocol designed for agent commerce. It enables AI agents to embed one-time payment mandates within x402, A2A or MCP calls — enabling instant payee verification and deferred settlement after execution.
 
+![img](https://github.com/FluxA-Agent-Payment/APE2_MVP/blob/main/img/aep2.png)
+
 AEP2 provides "embedded one-time payment authorization (mandate)" capability for AI agents. When an agent makes an API call, it includes a mandate + signature in the request header. The Settlement Processor (SP) verifies and commits to settling on-chain within a settlement window, while the Debit Wallet protects this window with a delayed withdrawal model.
+
+Learn more: [fluxapay.xyz/protocol](https://www.fluxapay.xyz/protocol)
 
 ## Architecture
 
