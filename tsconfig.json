@@ -12,6 +12,6 @@
     "resolveJsonModule": true,
     "moduleResolution": "node"
   },
-  "include": ["./scripts", "./test", "./services", "./typechain-types"],
-  "files": ["./hardhat.config.ts"]
+  "include": ["./services/**/*.ts"],
+  "exclude": ["./test", "./scripts", "./node_modules", "./dist", "./contracts", "./playground"]
 }
