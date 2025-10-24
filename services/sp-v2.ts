@@ -3,6 +3,8 @@ import { ethers } from "ethers";
 import * as dotenv from "dotenv";
 import Database from "better-sqlite3";
 import * as path from "path";
+import * as os from "os";
+import * as fs from "fs";
 
 dotenv.config();
 
@@ -79,9 +81,19 @@ const MANDATE_TYPES = {
   ],
 };
 
-// Initialize SQLite database
-const DB_FILE = path.join(__dirname, "../.sp-data.db");
+// Initialize SQLite database in home directory
+const HOME_DIR = os.homedir();
+const SP_DATA_DIR = path.join(HOME_DIR, ".sp_data");
+const DB_FILE = path.join(SP_DATA_DIR, ".sp-data.db");
+
+// Create .sp_data directory if it doesn't exist
+if (!fs.existsSync(SP_DATA_DIR)) {
+  fs.mkdirSync(SP_DATA_DIR, { recursive: true });
+  console.log(`[INIT] Created data directory: ${SP_DATA_DIR}`);
+}
+
 const db = new Database(DB_FILE);
+console.log(`[INIT] Database location: ${DB_FILE}`);
 
 // Create tables
 db.exec(`
