@@ -12,7 +12,9 @@
       "Bash(curl:*)",
       "Bash(npx hardhat run:*)",
       "Bash(npm run setup:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(npm run build:*)",
+      "Bash(node dist/services/sp-v2.js:*)"
     ],
     "deny": [],
     "ask": []

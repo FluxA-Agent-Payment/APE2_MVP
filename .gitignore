@@ -16,3 +16,10 @@ logs
 
 # MacOS
 .DS_Store
+logs/
+
+# Compiled JavaScript
+dist/
+
+# Logs
+logs/
