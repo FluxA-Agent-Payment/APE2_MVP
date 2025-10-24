@@ -10,12 +10,14 @@ export function PayeePanel() {
   const [response, setResponse] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requestTime, setRequestTime] = useState<number>(0);
 
   const sendRequest = async () => {
     try {
       setLoading(true);
       setError(null);
       setResponse(null);
+      setRequestTime(0);
 
       const requestHeaders: HeadersInit = {};
       Object.entries(headers).forEach(([key, value]) => {
@@ -24,12 +26,18 @@ export function PayeePanel() {
         }
       });
 
+      const startTime = performance.now();
+
       const res = await fetch("http://localhost:3002/predict", {
         method: "GET",
         headers: requestHeaders,
       });
 
       const data = await res.json();
+
+      const endTime = performance.now();
+      const duration = endTime - startTime;
+      setRequestTime(duration);
 
       if (!res.ok) {
         setError(data.message || `HTTP ${res.status}`);
@@ -60,8 +68,9 @@ export function PayeePanel() {
       <div className="p-6 border-b border-white/10">
         <div className="flex items-center gap-3">
           <Server className="w-6 h-6 text-blue-400" />
-          <h2 className="text-xl font-semibold text-white">Payee API</h2>
+          <h2 className="text-xl font-semibold text-white">ETH Price Pridiction  API</h2>
         </div>
+        <p className="text-sm text-gray-400 mt-1">This is a pay-per-use api that provides 5-minute eth price predictions based on crypto market–driven large-model forecasts. </p>
         <p className="text-sm text-gray-400 mt-1">GET /predict - ETH-USD Price Oracle</p>
       </div>
 
@@ -69,7 +78,7 @@ export function PayeePanel() {
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {/* Request Section */}
         <div>
-          <h3 className="text-sm font-semibold text-white mb-3">Request Headers</h3>
+          <h3 className="text-sm font-semibold text-white mb-3">HTTP Headers</h3>
           <div className="space-y-3">
             {Object.entries(headers).map(([key, value]) => (
               <div key={key}>
@@ -91,27 +100,34 @@ export function PayeePanel() {
             className="mt-4 w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             <Send className="w-4 h-4" />
-            {loading ? "Sending Request..." : "Send Request"}
+            {loading ? "Sending HTTP Request..." : "Send HTTP Request"}
           </button>
         </div>
 
         {/* Response Section */}
         {(response || error) && (
           <div className="border-t border-white/10 pt-6">
-            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-              Response
-              {error ? (
-                <span className="flex items-center gap-1 text-red-400 text-xs">
-                  <AlertCircle className="w-4 h-4" />
-                  Error
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-green-400 text-xs">
-                  <CheckCircle2 className="w-4 h-4" />
-                  {response?.status}
-                </span>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                Response
+                {error ? (
+                  <span className="flex items-center gap-1 text-red-400 text-xs">
+                    <AlertCircle className="w-4 h-4" />
+                    Error
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-green-400 text-xs">
+                    <CheckCircle2 className="w-4 h-4" />
+                    {response?.status}
+                  </span>
+                )}
+              </h3>
+              {requestTime > 0 && (
+                <div className="text-xs font-semibold text-purple-400 bg-purple-900/20 px-3 py-1 rounded-full border border-purple-500/30">
+                  ⚡ {requestTime.toFixed(0)}ms
+                </div>
               )}
-            </h3>
+            </div>
 
             {error && (
               <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
@@ -143,7 +159,7 @@ export function PayeePanel() {
 
                 {/* Highlight Price if available */}
                 {response.data?.price && (
-                  <div className="p-4 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-lg border border-blue-500/30">
+                  <div className="p-4 bg-gradient-to-r from-blue-500/20 to-blue-500/20 rounded-lg border border-blue-500/30">
                     <div className="text-sm text-gray-400 mb-1">ETH-USD Price</div>
                     <div className="text-3xl font-bold text-white">
                       ${response.data.price.toFixed(2)}

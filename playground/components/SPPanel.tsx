@@ -3,19 +3,23 @@
 import { useState, useEffect } from "react";
 import { Activity, Clock, CheckCircle, AlertTriangle, ExternalLink } from "lucide-react";
 
-interface MandateStatus {
+interface MandateHistory {
   mandateDigest: string;
-  status: "enqueued" | "processing" | "settled" | "failed";
-  timestamp: number;
+  owner: string;
+  payee: string;
+  amount: string;
+  status: "enqueued" | "settled" | "failed";
+  enqueuedAt: number;
+  settledAt?: number;
   txHash?: string;
-  error?: string;
 }
 
 export function SPPanel() {
-  const [mandates, setMandates] = useState<MandateStatus[]>([]);
+  const [mandates, setMandates] = useState<MandateHistory[]>([]);
   const [spStatus, setSPStatus] = useState<{
     connected: boolean;
     queueLength: number;
+    settled: number;
     sp: string;
   } | null>(null);
 
@@ -28,40 +32,33 @@ export function SPPanel() {
         setSPStatus({
           connected: true,
           queueLength: data.queueLength || 0,
+          settled: data.settled || 0,
           sp: data.sp || "",
         });
+
+        // Update mandates from history (already ordered DESC from backend)
+        if (data.history) {
+          setMandates(data.history);
+        }
       } catch (error) {
         setSPStatus({
           connected: false,
           queueLength: 0,
+          settled: 0,
           sp: "",
         });
       }
     };
 
     checkHealth();
-    const interval = setInterval(checkHealth, 3000);
+    const interval = setInterval(checkHealth, 2000);
     return () => clearInterval(interval);
   }, []);
 
-  // Add mandate to tracking (would be called from parent or context)
-  const addMandate = (digest: string) => {
-    setMandates((prev) => [
-      {
-        mandateDigest: digest,
-        status: "enqueued",
-        timestamp: Date.now(),
-      },
-      ...prev,
-    ]);
-  };
-
-  const getStatusColor = (status: MandateStatus["status"]) => {
+  const getStatusColor = (status: MandateHistory["status"]) => {
     switch (status) {
       case "enqueued":
         return "text-blue-400 bg-blue-500/20 border-blue-500/30";
-      case "processing":
-        return "text-yellow-400 bg-yellow-500/20 border-yellow-500/30";
       case "settled":
         return "text-green-400 bg-green-500/20 border-green-500/30";
       case "failed":
@@ -69,12 +66,10 @@ export function SPPanel() {
     }
   };
 
-  const getStatusIcon = (status: MandateStatus["status"]) => {
+  const getStatusIcon = (status: MandateHistory["status"]) => {
     switch (status) {
       case "enqueued":
         return <Clock className="w-4 h-4" />;
-      case "processing":
-        return <Activity className="w-4 h-4 animate-pulse" />;
       case "settled":
         return <CheckCircle className="w-4 h-4" />;
       case "failed":
@@ -114,7 +109,7 @@ export function SPPanel() {
             <div className="p-3 bg-white/5 rounded-lg border border-white/10">
               <div className="text-xs text-gray-400 mb-1">Settled</div>
               <div className="text-2xl font-bold text-green-400">
-                {mandates.filter((m) => m.status === "settled").length}
+                {spStatus.settled}
               </div>
             </div>
           </div>
@@ -132,10 +127,7 @@ export function SPPanel() {
         {/* Mandates List */}
         <div>
           <h3 className="text-sm font-semibold text-white mb-3">
-            Mandate History
-            {mandates.length > 0 && (
-              <span className="ml-2 text-gray-400 font-normal">({mandates.length})</span>
-            )}
+            Lasted Mandates
           </h3>
 
           <div className="space-y-2">
@@ -161,29 +153,36 @@ export function SPPanel() {
                       </span>
                     </div>
                     <div className="text-xs text-gray-400">
-                      {new Date(mandate.timestamp).toLocaleTimeString()}
+                      {new Date(mandate.enqueuedAt * 1000).toLocaleTimeString()}
                     </div>
                   </div>
 
-                  <div className="text-xs font-mono text-gray-300 mb-2">
+                  <div className="text-xs font-mono text-gray-300 mb-1">
                     {mandate.mandateDigest.slice(0, 20)}...
                   </div>
 
-                  {mandate.txHash && (
-                    <a
-                      href={`https://sepolia.basescan.org/tx/${mandate.txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                    >
-                      View on BaseScan
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
+                  <div className="text-xs text-gray-400 space-y-0.5">
+                    <div>From: {mandate.owner.slice(0, 10)}...{mandate.owner.slice(-4)}</div>
+                    <div>To: {mandate.payee.slice(0, 10)}...{mandate.payee.slice(-4)}</div>
+                    <div>Amount: {(parseInt(mandate.amount) / 1e6).toFixed(2)} USDC</div>
+                  </div>
 
-                  {mandate.error && (
-                    <div className="mt-2 text-xs text-red-300">
-                      Error: {mandate.error}
+                  {mandate.settledAt && (
+                    <div className="mt-2 space-y-1">
+                      <div className="text-xs text-green-300">
+                        Settled at {new Date(mandate.settledAt * 1000).toLocaleTimeString()}
+                      </div>
+                      {mandate.txHash && (
+                        <a
+                          href={`https://sepolia.basescan.org/tx/${mandate.txHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          View on BaseScan
+                        </a>
+                      )}
                     </div>
                   )}
                 </div>

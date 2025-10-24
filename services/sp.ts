@@ -1,6 +1,8 @@
 import express from "express";
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
+import * as fs from "fs";
+import * as path from "path";
 
 dotenv.config();
 
@@ -77,16 +79,64 @@ const MANDATE_TYPES = {
   ],
 };
 
-// Settlement queue (in-memory for PoC)
+// Settlement queue with persistence
 interface QueueItem {
   mandate: any;
   payerSig: string;
   receipt: any;
   retries: number;
+  status: "enqueued" | "settled" | "failed";
+  enqueuedAt: number;
+  settledAt?: number;
 }
 
-const settlementQueue: QueueItem[] = [];
-const processedMandates = new Set<string>();
+interface PersistentData {
+  queue: QueueItem[];
+  processedMandates: string[];
+  mandateHistory: QueueItem[];
+  settled: number;
+}
+
+const DATA_FILE = path.join(__dirname, "../.sp-data.json");
+
+let settlementQueue: QueueItem[] = [];
+let processedMandates = new Set<string>();
+let mandateHistory: QueueItem[] = [];
+let settledCount = 0;
+
+// Load persistent data
+function loadData() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const data: PersistentData = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      settlementQueue = data.queue || [];
+      processedMandates = new Set(data.processedMandates || []);
+      mandateHistory = data.mandateHistory || [];
+      settledCount = data.settled || 0;
+      console.log(`[PERSISTENCE] Loaded ${settlementQueue.length} queued, ${settledCount} settled mandates`);
+    }
+  } catch (error) {
+    console.error("[PERSISTENCE ERROR] Failed to load data:", error);
+  }
+}
+
+// Save persistent data
+function saveData() {
+  try {
+    const data: PersistentData = {
+      queue: settlementQueue,
+      processedMandates: Array.from(processedMandates),
+      mandateHistory,
+      settled: settledCount,
+    };
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error("[PERSISTENCE ERROR] Failed to save data:", error);
+  }
+}
+
+// Load data on startup
+loadData();
 
 // Verify mandate signature
 function verifyMandateSignature(mandate: any, payerSig: string): boolean {
@@ -202,13 +252,20 @@ app.post("/enqueue", async (req, res) => {
     };
 
     // 7. Add to settlement queue
-    settlementQueue.push({
+    const queueItem: QueueItem = {
       mandate,
       payerSig,
       receipt,
       retries: 0,
-    });
+      status: "enqueued",
+      enqueuedAt: now,
+    };
+
+    settlementQueue.push(queueItem);
+    mandateHistory.push(queueItem);
     processedMandates.add(mandateDigest);
+
+    saveData();
 
     console.log(
       `[ENQUEUE] Mandate ${mandateDigest.slice(0, 10)}... added to queue`
@@ -234,6 +291,16 @@ app.get("/health", (req, res) => {
     sp: spWallet.address,
     wallet: WALLET_ADDR,
     queueLength: settlementQueue.length,
+    settled: settledCount,
+    history: mandateHistory.map((item) => ({
+      mandateDigest: item.receipt.mandateDigest,
+      owner: item.mandate.owner,
+      payee: item.mandate.payee,
+      amount: item.mandate.amount,
+      status: item.status,
+      enqueuedAt: item.enqueuedAt,
+      settledAt: item.settledAt,
+    })),
   });
 });
 
@@ -266,24 +333,67 @@ async function settlementWorker() {
     });
 
     console.log(`[WORKER] Transaction sent: ${tx.hash}`);
-    await tx.wait();
+    const receipt = await tx.wait();
+
+    // Check if transaction was successful
+    if (receipt.status === 0) {
+      throw new Error("Transaction reverted");
+    }
 
     console.log(
       `[WORKER] Settlement successful for ${item.receipt.mandateDigest.slice(0, 10)}...`
     );
 
+    // Update item status
+    item.status = "settled";
+    item.settledAt = Math.floor(Date.now() / 1000);
+
+    // Update history
+    const historyItem = mandateHistory.find(
+      (h) => h.receipt.mandateDigest === item.receipt.mandateDigest
+    );
+    if (historyItem) {
+      historyItem.status = "settled";
+      historyItem.settledAt = item.settledAt;
+    }
+
+    settledCount++;
+
     // Remove from queue
     settlementQueue.shift();
+
+    saveData();
   } catch (error: any) {
     const errorMsg = error.message || String(error);
     console.error("[WORKER ERROR]", errorMsg);
 
+    // Check if transaction execution reverted
+    if (errorMsg.includes("transaction execution reverted") || errorMsg.includes("Transaction reverted")) {
+      console.log(
+        `[WORKER] Transaction reverted for ${item.receipt.mandateDigest.slice(0, 10)}..., removing from queue`
+      );
+
+      // Update history status
+      item.status = "failed";
+      const historyItem = mandateHistory.find(
+        (h) => h.receipt.mandateDigest === item.receipt.mandateDigest
+      );
+      if (historyItem) {
+        historyItem.status = "failed";
+      }
+
+      settlementQueue.shift();
+      saveData();
+      return;
+    }
+
     // Check if transaction already known (already submitted/mined)
-    if (errorMsg.includes("already known") || errorMsg.includes("nonce too low")) {
+    if (errorMsg.includes("already known") || errorMsg.includes("nonce too low") || errorMsg.includes("could not coalesce error")) {
       console.log(
         `[WORKER] Transaction already submitted for ${item.receipt.mandateDigest.slice(0, 10)}..., removing from queue`
       );
       settlementQueue.shift();
+      saveData();
       return;
     }
 
@@ -293,6 +403,7 @@ async function settlementWorker() {
         `[WORKER] Settlement already completed for ${item.receipt.mandateDigest.slice(0, 10)}..., removing from queue`
       );
       settlementQueue.shift();
+      saveData();
       return;
     }
 
@@ -302,7 +413,18 @@ async function settlementWorker() {
       console.error(
         `[WORKER] Max retries reached for ${item.receipt.mandateDigest.slice(0, 10)}..., removing from queue`
       );
+
+      // Update history status
+      item.status = "failed";
+      const historyItem = mandateHistory.find(
+        (h) => h.receipt.mandateDigest === item.receipt.mandateDigest
+      );
+      if (historyItem) {
+        historyItem.status = "failed";
+      }
+
       settlementQueue.shift();
+      saveData();
     } else {
       console.log(
         `[WORKER] Retry ${item.retries}/3 for ${item.receipt.mandateDigest.slice(0, 10)}...`

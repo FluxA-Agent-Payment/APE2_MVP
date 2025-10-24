@@ -9,7 +9,10 @@
       "Bash(npm install:*)",
       "Bash(cat:*)",
       "Bash(npm run faucet:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx hardhat run:*)",
+      "Bash(npm run setup:*)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []

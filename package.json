@@ -8,13 +8,18 @@
     "setup": "hardhat run scripts/setup.ts --network baseSepolia",
     "deposit": "hardhat run scripts/deposit.ts --network baseSepolia",
     "addresses": "ts-node scripts/get-addresses.ts",
-    "sp": "ts-node services/sp.ts",
+    "sp": "ts-node services/sp-v2.ts",
+    "sp-old": "ts-node services/sp.ts",
     "payee": "ts-node services/payee.ts",
     "faucet": "ts-node services/faucet.ts",
     "client": "ts-node services/client.ts",
     "test": "hardhat test"
   },
-  "keywords": ["payment", "agent", "web3"],
+  "keywords": [
+    "payment",
+    "agent",
+    "web3"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
@@ -27,9 +32,11 @@
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.4.1",
+    "dotenv": "^16.3.1",
     "ethers": "^6.9.0",
     "express": "^4.18.2",
-    "node-fetch": "^3.3.2",
-    "dotenv": "^16.3.1"
+    "node-fetch": "^3.3.2"
   }
 }
