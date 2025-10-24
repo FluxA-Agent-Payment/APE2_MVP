@@ -1,8 +1,8 @@
-# AEP2 MVP - Agent Embedded Payment v2
-
-A minimal viable product implementation of the Agent Embedded Payment protocol for AI-native payment solutions.
+This repo is a minimal viable product implementation of the Agent Embedded Payment protocol for AI-native payment solutions.
 
 ## Overview
+
+AEP2 is an embedded payment protocol designed for agent commerce. It enables AI agents to embed one-time payment mandates within x402, A2A or MCP calls — enabling instant payee verification and deferred settlement after execution.
 
 AEP2 provides "embedded one-time payment authorization (mandate)" capability for AI agents. When an agent makes an API call, it includes a mandate + signature in the request header. The Settlement Processor (SP) verifies and commits to settling on-chain within a settlement window, while the Debit Wallet protects this window with a delayed withdrawal model.
 
@@ -297,50 +297,4 @@ Health check endpoint.
 
 ## Security Considerations
 
-This is a PoC/MVP implementation. Production deployments should include:
-
-- Pausable functionality
-- ReentrancyGuard
-- Token whitelist
-- Amount limits per transaction
-- Rate limiting
-- Comprehensive access controls
-- Upgradeable proxy pattern
-- Audit by professional security firms
-
-## Network Information
-
-- **Chain**: Base Sepolia Testnet
-- **Chain ID**: 84532
-- **RPC**: https://sepolia.base.org
-- **Block Explorer**: https://sepolia.basescan.org
-- **USDC Address**: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
-
-## Troubleshooting
-
-### "Insufficient balance" error
-
-- Check client has deposited USDC into the wallet contract
-- Verify USDC balance: `walletContract.balances(clientAddress, usdcAddress)`
-- Check debitable balance: `walletContract.debitableBalance(clientAddress, usdcAddress)`
-
-### "Not authorized SP" error
-
-- Ensure SP address is authorized: `walletContract.setSP(spAddress, true)`
-- Verify authorization: `walletContract.sp(spAddress)` should return `true`
-
-### "Invalid signature" error
-
-- Check EIP-712 domain matches (chainId, verifyingContract)
-- Verify mandate structure matches contract Mandate struct
-- Ensure correct private key is used for signing
-
-## License
-
-MIT
-
-## References
-
-- [PRD Document](./prd.md)
-- [Base Testnet Docs](https://docs.base.org/)
-- [EIP-712 Specification](https://eips.ethereum.org/EIPS/eip-712)
+This is a PoC/MVP implementation. DO NOT DEPLOY ON PRODUCTION.
