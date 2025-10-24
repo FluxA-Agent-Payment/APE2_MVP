@@ -7,7 +7,9 @@
       "Bash(npm run payee:*)",
       "Bash(npx create-next-app:*)",
       "Bash(npm install:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(npm run faucet:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

@@ -10,6 +10,7 @@
     "addresses": "ts-node scripts/get-addresses.ts",
     "sp": "ts-node services/sp.ts",
     "payee": "ts-node services/payee.ts",
+    "faucet": "ts-node services/faucet.ts",
     "client": "ts-node services/client.ts",
     "test": "hardhat test"
   },

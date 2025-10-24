@@ -15,8 +15,9 @@ interface Mandate {
   ref: string;
 }
 
-const USDC_ADDRESS = "0x81bb48C38d6127cEd513804Bfb4828622eb3D0d4";
-const WALLET_CONTRACT = "0x91d861cD4d2F5d8Ffb31CB7308388CA5e6999912";
+const USDC_ADDRESS = process.env.NEXT_PUBLIC_USDC_ADDR || "0x81bb48C38d6127cEd513804Bfb4828622eb3D0d4";
+const WALLET_CONTRACT = process.env.NEXT_PUBLIC_WALLET_ADDR || "0x91d861cD4d2F5d8Ffb31CB7308388CA5e6999912";
+const FAUCET_URL = process.env.NEXT_PUBLIC_FAUCET_URL || "http://localhost:3003";
 
 const USDC_ABI = [
   "function balanceOf(address) view returns (uint256)",
@@ -38,6 +39,7 @@ export function WalletPanel() {
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [claiming, setClaiming] = useState(false);
 
   // Form states
   const [payeeAddress, setPayeeAddress] = useState("0x2130797f2F66c06110fF298cC361fCA4d72e1499");
@@ -73,8 +75,46 @@ export function WalletPanel() {
     }
   }, [address, provider]);
 
-  const claimFreeUSDC = () => {
-    window.open("https://faucet.circle.com/", "_blank");
+  const claimFreeUSDC = async () => {
+    if (!address) {
+      alert("Please connect wallet first");
+      return;
+    }
+
+    try {
+      setClaiming(true);
+
+      const response = await fetch(`${FAUCET_URL}/claim`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ address }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data.error === "RATE_LIMITED") {
+          alert(`Please wait ${data.remainingMinutes} minutes before claiming again`);
+        } else {
+          alert(`Claim failed: ${data.message}`);
+        }
+        return;
+      }
+
+      alert(`Success! You received 3 USDC and 0.0001 ETH\nETH tx: ${data.transactions.eth.hash}\nUSDC tx: ${data.transactions.usdc.hash}`);
+
+      // Refresh balances after a short delay
+      setTimeout(() => {
+        fetchBalances();
+      }, 2000);
+    } catch (error: any) {
+      console.error("Error claiming from faucet:", error);
+      alert("Failed to claim from faucet. Please make sure the faucet service is running.");
+    } finally {
+      setClaiming(false);
+    }
   };
 
   const depositToWallet = async () => {
@@ -271,10 +311,20 @@ export function WalletPanel() {
             <div className="space-y-3">
               <button
                 onClick={claimFreeUSDC}
-                className="w-full py-2.5 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                disabled={claiming}
+                className="w-full py-2.5 px-4 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Download className="w-4 h-4" />
-                Claim Free USDC
+                {claiming ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Claiming...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    Claim Free USDC
+                  </>
+                )}
               </button>
 
               <button
