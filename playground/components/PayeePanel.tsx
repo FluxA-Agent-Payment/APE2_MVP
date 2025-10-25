@@ -28,7 +28,8 @@ export function PayeePanel() {
 
       const startTime = performance.now();
 
-      const res = await fetch("http://localhost:3002/predict", {
+      const payeeUrl = process.env.NEXT_PUBLIC_PAYEE_URL || "http://localhost:3002";
+      const res = await fetch(`${payeeUrl}/predict`, {
         method: "GET",
         headers: requestHeaders,
       });

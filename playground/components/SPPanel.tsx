@@ -27,7 +27,8 @@ export function SPPanel() {
     // Check SP health
     const checkHealth = async () => {
       try {
-        const res = await fetch("http://localhost:3001/health");
+        const spUrl = process.env.NEXT_PUBLIC_SP_URL || "http://localhost:3001";
+        const res = await fetch(`${spUrl}/health`);
         const data = await res.json();
         setSPStatus({
           connected: true,

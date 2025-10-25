@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 export async function GET() {
   try {
-    const response = await fetch("http://localhost:3001/health");
+    const spUrl = process.env.NEXT_PUBLIC_SP_URL || "http://localhost:3001";
+    const response = await fetch(`${spUrl}/health`);
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
