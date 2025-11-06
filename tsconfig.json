@@ -13,5 +13,12 @@
     "moduleResolution": "node"
   },
   "include": ["./services/**/*.ts"],
-  "exclude": ["./test", "./scripts", "./node_modules", "./dist", "./contracts", "./playground"]
+  "exclude": [
+    "./test",
+    "./scripts",
+    "./node_modules",
+    "./dist",
+    "./contracts",
+    "./playground"
+  ]
 }

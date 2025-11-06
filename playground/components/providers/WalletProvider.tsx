@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
 
 interface WalletContextType {
@@ -28,7 +28,8 @@ interface WalletProviderProps {
   children: ReactNode;
 }
 
-export function WalletProvider({ children }: WalletProviderProps) {
+// Internal component that uses Privy hooks
+function WalletProviderInternal({ children }: WalletProviderProps) {
   const { login, logout, authenticated, ready } = usePrivy();
   const { wallets } = useWallets();
   const [address, setAddress] = useState<string | null>(null);
@@ -121,5 +122,67 @@ export function WalletProvider({ children }: WalletProviderProps) {
     >
       {children}
     </WalletContext.Provider>
+  );
+}
+
+// Main provider that wraps with PrivyProvider for Ethereum
+export function WalletProvider({ children }: WalletProviderProps) {
+  return (
+    <PrivyProvider
+      appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID || "clxxx"}
+      config={{
+        appearance: {
+          theme: "dark",
+          accentColor: "#9333ea",
+        },
+        loginMethods: ["google", "email", "wallet"],
+        defaultChain: {
+          id: 84532,
+          name: "Base Sepolia",
+          network: "base-sepolia",
+          nativeCurrency: {
+            decimals: 18,
+            name: "Ether",
+            symbol: "ETH",
+          },
+          rpcUrls: {
+            default: {
+              http: ["https://sepolia.base.org"],
+            },
+          },
+          blockExplorers: {
+            default: {
+              name: "BaseScan",
+              url: "https://sepolia.basescan.org",
+            },
+          },
+        },
+        supportedChains: [
+          {
+            id: 84532,
+            name: "Base Sepolia",
+            network: "base-sepolia",
+            nativeCurrency: {
+              decimals: 18,
+              name: "Ether",
+              symbol: "ETH",
+            },
+            rpcUrls: {
+              default: {
+                http: ["https://sepolia.base.org"],
+              },
+            },
+            blockExplorers: {
+              default: {
+                name: "BaseScan",
+                url: "https://sepolia.basescan.org",
+              },
+            },
+          },
+        ],
+      }}
+    >
+      <WalletProviderInternal>{children}</WalletProviderInternal>
+    </PrivyProvider>
   );
 }

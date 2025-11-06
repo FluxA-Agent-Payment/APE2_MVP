@@ -5,7 +5,7 @@ import { Activity, Clock, CheckCircle, AlertTriangle, ExternalLink } from "lucid
 
 interface MandateHistory {
   mandateDigest: string;
-  owner: string;
+  payer: string;
   payee: string;
   amount: string;
   status: "enqueued" | "settled" | "failed";
@@ -120,7 +120,7 @@ export function SPPanel() {
           <div className="p-3 bg-white/5 rounded-lg border border-white/10">
             <div className="text-xs text-gray-400 mb-1">SP Address</div>
             <div className="text-white font-mono text-xs">
-              {spStatus.sp.slice(0, 10)}...{spStatus.sp.slice(-8)}
+              {spStatus.sp?.slice(0, 10)}...{spStatus.sp?.slice(-8)}
             </div>
           </div>
         )}
@@ -128,7 +128,7 @@ export function SPPanel() {
         {/* Mandates List */}
         <div>
           <h3 className="text-sm font-semibold text-white mb-3">
-            Lasted Mandates
+            Latest Mandates
           </h3>
 
           <div className="space-y-2">
@@ -159,13 +159,13 @@ export function SPPanel() {
                   </div>
 
                   <div className="text-xs font-mono text-gray-300 mb-1">
-                    {mandate.mandateDigest.slice(0, 20)}...
+                    {mandate.mandateDigest?.slice(0, 20)}...
                   </div>
 
                   <div className="text-xs text-gray-400 space-y-0.5">
-                    <div>From: {mandate.owner.slice(0, 10)}...{mandate.owner.slice(-4)}</div>
-                    <div>To: {mandate.payee.slice(0, 10)}...{mandate.payee.slice(-4)}</div>
-                    <div>Amount: {(parseInt(mandate.amount) / 1e6).toFixed(2)} USDC</div>
+                    <div>From: {mandate.payer?.slice(0, 10)}...{mandate.payer?.slice(-4)}</div>
+                    <div>To: {mandate.payee?.slice(0, 10)}...{mandate.payee?.slice(-4)}</div>
+                    <div>Amount: {(parseInt(mandate.amount || "0") / 1e6).toFixed(2)} USDC</div>
                   </div>
 
                   {mandate.settledAt && (
@@ -175,13 +175,13 @@ export function SPPanel() {
                       </div>
                       {mandate.txHash && (
                         <a
-                          href={`https://sepolia.basescan.org/tx/${mandate.txHash}`}
+                          href={`https://explorer.solana.com/tx/${mandate.txHash}?cluster=devnet`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
                         >
                           <ExternalLink className="w-3 h-3" />
-                          View on BaseScan
+                          View on Solana Explorer
                         </a>
                       )}
                     </div>

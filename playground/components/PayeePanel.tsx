@@ -42,6 +42,11 @@ export function PayeePanel() {
 
       if (!res.ok) {
         setError(data.message || `HTTP ${res.status}`);
+      } else {
+        // Dispatch payment success event to refresh wallet balance
+        if (data.payment?.status === "enqueued") {
+          window.dispatchEvent(new CustomEvent('payment-success'));
+        }
       }
 
       setResponse({
