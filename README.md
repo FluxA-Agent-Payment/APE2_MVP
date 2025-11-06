@@ -1,5 +1,34 @@
 This repo is a minimal viable product implementation of the Agent Embedded Payment protocol for AI-native payment solutions.
 
+## Available Implementations
+
+This repository contains **two blockchain implementations** of the AEP2 protocol:
+
+### 🔷 EVM Implementation (This Branch - `main`)
+- **Blockchain**: Base Sepolia (EVM-compatible)
+- **Language**: Solidity
+- **This README**: Complete guide for EVM implementation
+- **Features**: MetaMask integration, ERC-20 token support
+
+### 🟣 Solana Implementation (`solana-implementation` branch)
+- **Blockchain**: Solana Devnet
+- **Language**: Rust (Anchor framework)
+- **Documentation**: 
+  - **[SOLANA_QUICKSTART.md](SOLANA_QUICKSTART.md)** - Get running in 15 minutes
+  - **[SOLANA_README.md](SOLANA_README.md)** - Complete guide with architecture, API docs, and setup
+- **Features**: 
+  - Fast transactions (~400ms finality)
+  - Low costs (~$0.00025 per transaction)
+  - Phantom wallet integration
+  - SPL token support
+
+**To use the Solana implementation:**
+```bash
+git checkout solana-implementation
+```
+
+Then follow the [Solana Quick Start Guide](SOLANA_QUICKSTART.md) or the [Complete Solana README](SOLANA_README.md).
+
 ## Overview
 
 AEP2 is an embedded payment protocol designed for agent commerce. It enables AI agents to embed one-time payment mandates within x402, A2A or MCP calls — enabling instant payee verification and deferred settlement after execution.
@@ -302,3 +331,23 @@ Health check endpoint.
 ## Security Considerations
 
 This is a PoC/MVP implementation. DO NOT DEPLOY ON PRODUCTION.
+
+## Other Implementations
+
+### Solana Implementation
+
+We also have a **Solana implementation** available in the `solana-implementation` branch with:
+- ⚡ Faster transactions (~400ms finality)
+- 💰 Lower costs (~$0.00025 per transaction)
+- 🚀 High throughput (thousands of TPS)
+
+**To explore the Solana implementation:**
+```bash
+git checkout solana-implementation
+```
+
+**Documentation:**
+- **[SOLANA_QUICKSTART.md](SOLANA_QUICKSTART.md)** - Get running in 15 minutes
+- **[SOLANA_README.md](SOLANA_README.md)** - Complete guide with architecture, API docs, and detailed setup
+
+Both implementations provide the same AEP2 protocol functionality, so you can choose based on your blockchain preference and requirements.
