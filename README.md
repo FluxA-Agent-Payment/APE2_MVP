@@ -14,8 +14,8 @@ This repository contains **two blockchain implementations** of the AEP2 protocol
 - **Blockchain**: Solana Devnet
 - **Language**: Rust (Anchor framework)
 - **Documentation**: 
-  - **[SOLANA_QUICKSTART.md](SOLANA_QUICKSTART.md)** - Get running in 15 minutes
-  - **[SOLANA_README.md](SOLANA_README.md)** - Complete guide with architecture, API docs, and setup
+  - **[SOLANA_QUICKSTART.md](https://github.com/FluxA-Agent-Payment/APE2_MVP/blob/solana-implementation/SOLANA_QUICKSTART.md)** - Get running in 15 minutes
+  - **[SOLANA_README.md](https://github.com/FluxA-Agent-Payment/APE2_MVP/blob/solana-implementation/SOLANA_README.md)** - Complete guide with architecture, API docs, and setup
 - **Features**: 
   - Fast transactions (~400ms finality)
   - Low costs (~$0.00025 per transaction)
@@ -27,7 +27,7 @@ This repository contains **two blockchain implementations** of the AEP2 protocol
 git checkout solana-implementation
 ```
 
-Then follow the [Solana Quick Start Guide](SOLANA_QUICKSTART.md) or the [Complete Solana README](SOLANA_README.md).
+Then follow the [Solana Quick Start Guide](https://github.com/FluxA-Agent-Payment/APE2_MVP/blob/solana-implementation/SOLANA_QUICKSTART.md) or the [Complete Solana README](https://github.com/FluxA-Agent-Payment/APE2_MVP/blob/solana-implementation/SOLANA_README.md).
 
 ## Overview
 
@@ -347,7 +347,7 @@ git checkout solana-implementation
 ```
 
 **Documentation:**
-- **[SOLANA_QUICKSTART.md](SOLANA_QUICKSTART.md)** - Get running in 15 minutes
-- **[SOLANA_README.md](SOLANA_README.md)** - Complete guide with architecture, API docs, and detailed setup
+- **[SOLANA_QUICKSTART.md](https://github.com/FluxA-Agent-Payment/APE2_MVP/blob/solana-implementation/SOLANA_QUICKSTART.md)** - Get running in 15 minutes
+- **[SOLANA_README.md](https://github.com/FluxA-Agent-Payment/APE2_MVP/blob/solana-implementation/SOLANA_README.md)** - Complete guide with architecture, API docs, and detailed setup
 
 Both implementations provide the same AEP2 protocol functionality, so you can choose based on your blockchain preference and requirements.
