@@ -23,3 +23,6 @@ dist/
 
 # Logs
 logs/
+target/
+.env.solana
+.env.local.solana
