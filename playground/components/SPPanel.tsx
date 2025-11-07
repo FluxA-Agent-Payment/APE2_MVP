@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Activity, Clock, CheckCircle, AlertTriangle, ExternalLink } from "lucide-react";
+import { Activity, Clock, CheckCircle, AlertTriangle, ExternalLink, Zap, Loader2 } from "lucide-react";
 
 interface MandateHistory {
   mandateDigest: string;
@@ -29,7 +29,22 @@ export function SPPanel() {
       try {
         const spUrl = process.env.NEXT_PUBLIC_SP_URL || "http://localhost:3001";
         const res = await fetch(`${spUrl}/health`);
+        
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+        
         const data = await res.json();
+        
+        // Debug logging
+        console.log("[SPPanel] Health check response:", {
+          status: data.status,
+          queueLength: data.queueLength,
+          settled: data.settled,
+          historyLength: data.history?.length || 0,
+          history: data.history,
+        });
+        
         setSPStatus({
           connected: true,
           queueLength: data.queueLength || 0,
@@ -38,16 +53,34 @@ export function SPPanel() {
         });
 
         // Update mandates from history (already ordered DESC from backend)
-        if (data.history) {
-          setMandates(data.history);
+        if (data.history && Array.isArray(data.history)) {
+          // Ensure all required fields are present
+          const validMandates = data.history.map((m: any) => ({
+            mandateDigest: m.mandateDigest || m.mandate_digest || "",
+            payer: m.payer || m.owner || "",
+            payee: m.payee || "",
+            amount: m.amount || "0",
+            status: (m.status || "enqueued") as "enqueued" | "settled" | "failed",
+            enqueuedAt: m.enqueuedAt || m.enqueued_at || Math.floor(Date.now() / 1000),
+            settledAt: m.settledAt || m.settled_at || undefined,
+            txHash: m.txHash || m.tx_hash || undefined,
+          })).filter((m: any) => m.mandateDigest); // Filter out invalid entries
+          
+          console.log("[SPPanel] Processed mandates:", validMandates);
+          setMandates(validMandates);
+        } else {
+          console.warn("[SPPanel] No history or invalid format:", data.history);
+          setMandates([]);
         }
       } catch (error) {
+        console.error("[SPPanel] Error checking health:", error);
         setSPStatus({
           connected: false,
           queueLength: 0,
           settled: 0,
           sp: "",
         });
+        setMandates([]);
       }
     };
 
@@ -82,10 +115,10 @@ export function SPPanel() {
     <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 h-full flex flex-col overflow-hidden">
       {/* Header */}
       <div className="p-6 border-b border-white/10">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <Activity className="w-6 h-6 text-green-400" />
-            <h2 className="text-xl font-semibold text-white">Settlement Processor</h2>
+            <h2 className="text-xl font-semibold text-white">On-Chain Settlement</h2>
           </div>
           <div className={`flex items-center gap-2 text-xs ${
             spStatus?.connected ? "text-green-400" : "text-red-400"
@@ -96,6 +129,9 @@ export function SPPanel() {
             {spStatus?.connected ? "Connected" : "Disconnected"}
           </div>
         </div>
+        <p className="text-xs text-gray-400 mt-2">
+          Payments enqueued in Step 3 are settled here on-chain. This happens <strong>after</strong> the API response.
+        </p>
       </div>
 
       {/* Content */}
@@ -137,57 +173,127 @@ export function SPPanel() {
                 <Activity className="w-12 h-12 text-gray-600 mx-auto mb-3" />
                 <div className="text-gray-400 text-sm">No mandates yet</div>
                 <div className="text-gray-500 text-xs mt-1">
-                  Signed mandates will appear here
+                  {spStatus?.connected ? (
+                    <>
+                      Make a payment request in Step 3 to see mandates here.
+                      <br />
+                      <span className="text-gray-600 mt-2 block">
+                        Queue: {spStatus.queueLength} | Settled: {spStatus.settled}
+                      </span>
+                    </>
+                  ) : (
+                    "Signed mandates will appear here"
+                  )}
                 </div>
               </div>
             ) : (
-              mandates.map((mandate) => (
-                <div
-                  key={mandate.mandateDigest}
-                  className={`p-3 rounded-lg border ${getStatusColor(mandate.status)}`}
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      {getStatusIcon(mandate.status)}
-                      <span className="text-xs font-semibold capitalize">
-                        {mandate.status}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-400">
-                      {new Date(mandate.enqueuedAt * 1000).toLocaleTimeString()}
-                    </div>
-                  </div>
-
-                  <div className="text-xs font-mono text-gray-300 mb-1">
-                    {mandate.mandateDigest?.slice(0, 20)}...
-                  </div>
-
-                  <div className="text-xs text-gray-400 space-y-0.5">
-                    <div>From: {mandate.payer?.slice(0, 10)}...{mandate.payer?.slice(-4)}</div>
-                    <div>To: {mandate.payee?.slice(0, 10)}...{mandate.payee?.slice(-4)}</div>
-                    <div>Amount: {(parseInt(mandate.amount || "0") / 1e6).toFixed(2)} USDC</div>
-                  </div>
-
-                  {mandate.settledAt && (
-                    <div className="mt-2 space-y-1">
-                      <div className="text-xs text-green-300">
-                        Settled at {new Date(mandate.settledAt * 1000).toLocaleTimeString()}
+              mandates.map((mandate) => {
+                const timeDiff = mandate.settledAt 
+                  ? mandate.settledAt - mandate.enqueuedAt 
+                  : Math.floor(Date.now() / 1000) - mandate.enqueuedAt;
+                
+                return (
+                  <div
+                    key={mandate.mandateDigest}
+                    className={`p-4 rounded-lg border ${getStatusColor(mandate.status)}`}
+                  >
+                    {/* Payment Lifecycle Timeline */}
+                    <div className="mb-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Zap className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-semibold text-white">Payment Lifecycle</span>
                       </div>
-                      {mandate.txHash && (
-                        <a
-                          href={`https://explorer.solana.com/tx/${mandate.txHash}?cluster=devnet`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                          View on Solana Explorer
-                        </a>
+                      <div className="space-y-2">
+                        {/* Step 1: Enqueued */}
+                        <div className="flex items-center gap-2 text-xs">
+                          <div className={`w-2 h-2 rounded-full ${
+                            mandate.status === "enqueued" 
+                              ? "bg-amber-400 animate-pulse" 
+                              : "bg-green-400"
+                          }`}></div>
+                          <span className={mandate.status === "enqueued" ? "text-amber-300" : "text-green-300"}>
+                            ✓ Enqueued (Step 3)
+                          </span>
+                          <span className="text-gray-400 ml-auto text-[10px]">
+                            {new Date(mandate.enqueuedAt * 1000).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        
+                        {/* Step 2: Settling */}
+                        {mandate.status === "enqueued" && (
+                          <div className="flex items-center gap-2 text-xs">
+                            <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+                            <span className="text-blue-300">⏳ Settling on-chain...</span>
+                            <span className="text-gray-400 ml-auto text-[10px]">
+                              {timeDiff > 0 ? `${timeDiff}s ago` : "Now"}
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* Step 3: Settled */}
+                        {mandate.status === "settled" && mandate.settledAt && (
+                          <div className="flex items-center gap-2 text-xs">
+                            <div className="w-2 h-2 rounded-full bg-green-400"></div>
+                            <span className="text-green-300">✓ Settled on-chain</span>
+                            <span className="text-gray-400 ml-auto text-[10px]">
+                              {new Date(mandate.settledAt * 1000).toLocaleTimeString()}
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* Time difference */}
+                        {mandate.settledAt && (
+                          <div className="ml-4 text-[10px] text-gray-500">
+                            ⏱️ Settled {timeDiff}s after enqueue
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-start justify-between mb-2 pt-3 border-t border-white/10">
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(mandate.status)}
+                        <span className="text-xs font-semibold capitalize">
+                          {mandate.status}
+                        </span>
+                      </div>
+                      {mandate.status === "enqueued" && (
+                        <span className="text-xs text-amber-300 animate-pulse">Deferred</span>
                       )}
                     </div>
-                  )}
-                </div>
-              ))
+
+                    <div className="text-xs font-mono text-gray-300 mb-2">
+                      {mandate.mandateDigest?.slice(0, 20)}...
+                    </div>
+
+                    <div className="text-xs text-gray-400 space-y-0.5 mb-2">
+                      <div>From: {mandate.payer?.slice(0, 10)}...{mandate.payer?.slice(-4)}</div>
+                      <div>To: {mandate.payee?.slice(0, 10)}...{mandate.payee?.slice(-4)}</div>
+                      <div>Amount: {(parseInt(mandate.amount || "0") / 1e6).toFixed(2)} USDC</div>
+                    </div>
+
+                    {mandate.settledAt && (
+                      <div className="mt-3 pt-3 border-t border-white/10 space-y-1">
+                        <div className="text-xs text-green-300 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          Settled at {new Date(mandate.settledAt * 1000).toLocaleTimeString()}
+                        </div>
+                        {mandate.txHash && (
+                          <a
+                            href={`https://explorer.solana.com/tx/${mandate.txHash}?cluster=devnet`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            View on Solana Explorer
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
