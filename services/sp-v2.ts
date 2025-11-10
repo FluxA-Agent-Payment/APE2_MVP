@@ -486,7 +486,8 @@ async function settlementWorker() {
 
   if (queuedMandates.length === 0) return;
 
-  const item = queuedMandates[0];
+  const item = queuedMandates.shift();
+  if (!item) return;
 
   try {
     console.log(
