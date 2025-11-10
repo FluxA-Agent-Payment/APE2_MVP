@@ -186,6 +186,10 @@ const updateMandateFailed = db.prepare(`
   UPDATE mandates SET status = 'failed' WHERE mandate_digest = ?
 `);
 
+const updateMandateEnqueued = db.prepare(`
+  UPDATE mandates SET status = 'enqueued', enqueued_at = ?, tx_hash = ? WHERE mandate_digest = ?
+`);
+
 const updateMandateRetries = db.prepare(`
   UPDATE mandates SET retries = retries + 1 WHERE mandate_digest = ?
 `);
@@ -486,9 +490,9 @@ async function settlementWorker() {
 
   if (queuedMandates.length === 0) return;
 
-  const item = queuedMandates.shift();
-  if (!item) return;
-
+  const item = queuedMandates[0];
+  const now = Math.floor(Date.now() / 1000);
+  updateMandateEnqueued.run(now, null, item.mandate_digest);
   try {
     console.log(
       `[WORKER] Processing settlement for ${item.mandate_digest.slice(0, 10)}...`
