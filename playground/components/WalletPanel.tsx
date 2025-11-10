@@ -204,11 +204,11 @@ export function WalletPanel() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-4 bg-white/5 rounded-lg border border-white/10">
                   <div className="text-sm text-gray-400 mb-1">USDC Balance</div>
-                  <div className="text-white font-semibold">{parseFloat(usdcBalance).toFixed(2)}</div>
+                  <div className="text-white font-semibold">{parseFloat(usdcBalance).toFixed(4)}</div>
                 </div>
                 <div className="p-4 bg-white/5 rounded-lg border border-white/10">
                   <div className="text-sm text-gray-400 mb-1">Debit Balance for AI</div>
-                  <div className="text-white font-semibold">{parseFloat(debitBalance).toFixed(2)}</div>
+                  <div className="text-white font-semibold">{parseFloat(debitBalance).toFixed(4)}</div>
                 </div>
               </div>
             </div>

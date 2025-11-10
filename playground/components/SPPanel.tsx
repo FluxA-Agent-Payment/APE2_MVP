@@ -257,7 +257,7 @@ export function SPPanel() {
                     <div className="text-xs text-gray-400 space-y-0.5 mb-2">
                       <div>From: {mandate.payer?.slice(0, 10)}...{mandate.payer?.slice(-4)}</div>
                       <div>To: {mandate.payee?.slice(0, 10)}...{mandate.payee?.slice(-4)}</div>
-                      <div>Amount: {(parseInt(mandate.amount || "0") / 1e6).toFixed(2)} USDC</div>
+                      <div>Amount: {(parseInt(mandate.amount || "0") / 1e6).toFixed(4)} USDC</div>
                     </div>
 
                     {mandate.settledAt && (
