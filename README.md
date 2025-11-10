@@ -347,7 +347,7 @@ git checkout solana-implementation
 ```
 
 **Documentation:**
-- **[SOLANA_QUICKSTART.md](https://github.com/FluxA-Agent-Payment/APE2_MVP/blob/solana-implementation/SOLANA_QUICKSTART.md)** - Get running in 15 minutes
+- **[SOLANA_QUICKSTART.md](https://github.com/FluxA-Agent-Payment/APE2_MVP/blob/solana-implementation/SOLANA_QUICKSTART.md)** - Get running in 15 minutes.
 - **[SOLANA_README.md](https://github.com/FluxA-Agent-Payment/APE2_MVP/blob/solana-implementation/SOLANA_README.md)** - Complete guide with architecture, API docs, and detailed setup
 
 Both implementations provide the same AEP2 protocol functionality, so you can choose based on your blockchain preference and requirements.
