@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'aep2-sp',
-      script: 'dist/services/sp-v2.js',
+      script: 'dist/services/sp.js',
       instances: 1,
       exec_mode: 'fork',
       env: {

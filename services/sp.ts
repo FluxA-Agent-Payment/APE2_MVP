@@ -1,8 +1,10 @@
 import express from "express";
 import { ethers } from "ethers";
 import * as dotenv from "dotenv";
-import * as fs from "fs";
+import Database from "better-sqlite3";
 import * as path from "path";
+import * as os from "os";
+import * as fs from "fs";
 
 dotenv.config();
 
@@ -79,66 +81,182 @@ const MANDATE_TYPES = {
   ],
 };
 
-// Settlement queue with persistence
-interface QueueItem {
-  mandate: any;
-  payerSig: string;
-  receipt: any;
-  retries: number;
-  status: "enqueued" | "settled" | "failed";
-  enqueuedAt: number;
-  settledAt?: number;
+// Initialize SQLite database in home directory
+const HOME_DIR = os.homedir();
+const SP_DATA_DIR = path.join(HOME_DIR, ".sp_data");
+const DB_FILE = path.join(SP_DATA_DIR, ".sp-data.db");
+
+// Create .sp_data directory if it doesn't exist
+if (!fs.existsSync(SP_DATA_DIR)) {
+  fs.mkdirSync(SP_DATA_DIR, { recursive: true, mode: 0o755 });
+  console.log(`[INIT] Created data directory: ${SP_DATA_DIR}`);
 }
 
-interface PersistentData {
-  queue: QueueItem[];
-  processedMandates: string[];
-  mandateHistory: QueueItem[];
-  settled: number;
+// Ensure directory is writable
+try {
+  fs.accessSync(SP_DATA_DIR, fs.constants.W_OK);
+} catch (error) {
+  console.error(`[ERROR] Directory ${SP_DATA_DIR} is not writable`);
+  console.error(`[ERROR] Please run: chmod 755 ${SP_DATA_DIR}`);
+  process.exit(1);
 }
 
-const DATA_FILE = path.join(__dirname, "../.sp-data.json");
+const db = new Database(DB_FILE);
+console.log(`[INIT] Database location: ${DB_FILE}`);
 
-let settlementQueue: QueueItem[] = [];
-let processedMandates = new Set<string>();
-let mandateHistory: QueueItem[] = [];
-let settledCount = 0;
+// Ensure database file has correct permissions
+if (fs.existsSync(DB_FILE)) {
+  fs.chmodSync(DB_FILE, 0o644);
+}
 
-// Load persistent data
-function loadData() {
-  try {
-    if (fs.existsSync(DATA_FILE)) {
-      const data: PersistentData = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-      settlementQueue = data.queue || [];
-      processedMandates = new Set(data.processedMandates || []);
-      mandateHistory = data.mandateHistory || [];
-      settledCount = data.settled || 0;
-      console.log(`[PERSISTENCE] Loaded ${settlementQueue.length} queued, ${settledCount} settled mandates`);
-    }
-  } catch (error) {
-    console.error("[PERSISTENCE ERROR] Failed to load data:", error);
+// Create tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS mandates (
+    mandate_digest TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    token TEXT NOT NULL,
+    payee TEXT NOT NULL,
+    amount TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    deadline INTEGER NOT NULL,
+    ref TEXT NOT NULL,
+    payer_sig TEXT NOT NULL,
+    sp_enqueue_sig TEXT NOT NULL,
+    enqueue_deadline INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('enqueued', 'settling', 'settled', 'failed')),
+    settling_at INTEGER,
+    enqueued_at INTEGER NOT NULL,
+    settled_at INTEGER,
+    tx_hash TEXT,
+    retries INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (unixepoch())
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_status ON mandates(status);
+  CREATE INDEX IF NOT EXISTS idx_enqueued_at ON mandates(enqueued_at DESC);
+
+  -- Offchain wallet balance state
+  CREATE TABLE IF NOT EXISTS wallet_balances (
+    owner TEXT NOT NULL,
+    token TEXT NOT NULL,
+    balance TEXT NOT NULL DEFAULT '0',
+    locked TEXT NOT NULL DEFAULT '0',
+    unlock_at INTEGER NOT NULL DEFAULT 0,
+    last_synced INTEGER NOT NULL,
+    PRIMARY KEY (owner, token)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_last_synced ON wallet_balances(last_synced);
+
+  -- Offchain nonce tracking
+  CREATE TABLE IF NOT EXISTS used_nonces (
+    owner TEXT NOT NULL,
+    token TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    used_at INTEGER NOT NULL,
+    PRIMARY KEY (owner, token, nonce)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_owner_token ON used_nonces(owner, token);
+`);
+
+// Add tx_hash column if it doesn't exist (migration)
+try {
+  db.exec(`ALTER TABLE mandates ADD COLUMN tx_hash TEXT`);
+  console.log("[MIGRATION] Added tx_hash column to mandates table");
+} catch (error: any) {
+  // Column already exists, ignore error
+  if (!error.message.includes("duplicate column name")) {
+    console.error("[MIGRATION ERROR]", error);
   }
 }
 
-// Save persistent data
-function saveData() {
-  try {
-    const data: PersistentData = {
-      queue: settlementQueue,
-      processedMandates: Array.from(processedMandates),
-      mandateHistory,
-      settled: settledCount,
-    };
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-  } catch (error) {
-    console.error("[PERSISTENCE ERROR] Failed to save data:", error);
-  }
-}
+// Prepared statements for better performance
+const insertMandate = db.prepare(`
+  INSERT INTO mandates (
+    mandate_digest, owner, token, payee, amount, nonce, deadline, ref,
+    payer_sig, sp_enqueue_sig, enqueue_deadline, status, enqueued_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
 
-// Load data on startup
-loadData();
+const updateMandateSettled = db.prepare(`
+  UPDATE mandates SET status = 'settled', settled_at = ?, tx_hash = ? WHERE mandate_digest = ?
+`);
 
-// Verify mandate signature
+const updateMandateFailed = db.prepare(`
+  UPDATE mandates SET status = 'failed' WHERE mandate_digest = ?
+`);
+
+const updateMandateSettling = db.prepare(`
+  UPDATE mandates SET status = 'settling', settling_at = ?, tx_hash = ? WHERE mandate_digest = ?
+`);
+
+const updateMandateRetries = db.prepare(`
+  UPDATE mandates SET retries = retries + 1 WHERE mandate_digest = ?
+`);
+
+const getQueuedMandates = db.prepare(`
+  SELECT * FROM mandates WHERE status = 'enqueued' ORDER BY enqueued_at ASC
+`);
+
+const getMandateByDigest = db.prepare(`
+  SELECT * FROM mandates WHERE mandate_digest = ?
+`);
+
+const getAllMandates = db.prepare(`
+  SELECT
+    mandate_digest as mandateDigest,
+    owner,
+    payee,
+    amount,
+    status,
+    enqueued_at as enqueuedAt,
+    settled_at as settledAt,
+    tx_hash as txHash
+  FROM mandates ORDER BY enqueued_at DESC LIMIT 10
+`);
+
+const getStats = db.prepare(`
+  SELECT
+    COUNT(CASE WHEN status = 'enqueued' THEN 1 END) as queued,
+    COUNT(CASE WHEN status = 'settled' THEN 1 END) as settled,
+    COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed
+  FROM mandates
+`);
+
+// Wallet balance statements
+const getWalletBalance = db.prepare(`
+  SELECT * FROM wallet_balances WHERE owner = ? AND token = ?
+`);
+
+const upsertWalletBalance = db.prepare(`
+  INSERT INTO wallet_balances (owner, token, balance, locked, unlock_at, last_synced)
+  VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT(owner, token) DO UPDATE SET
+    balance = excluded.balance,
+    locked = excluded.locked,
+    unlock_at = excluded.unlock_at,
+    last_synced = excluded.last_synced
+`);
+
+const updateWalletBalanceAfterSettle = db.prepare(`
+  UPDATE wallet_balances
+  SET balance = (CAST(balance AS INTEGER) - CAST(? AS INTEGER)),
+      last_synced = ?
+  WHERE owner = ? AND token = ?
+`);
+
+// Nonce statements
+const isNonceUsed = db.prepare(`
+  SELECT 1 FROM used_nonces WHERE owner = ? AND token = ? AND nonce = ?
+`);
+
+const markNonceUsed = db.prepare(`
+  INSERT OR IGNORE INTO used_nonces (owner, token, nonce, used_at)
+  VALUES (?, ?, ?, ?)
+`);
+
+// Verify mandate signature (optimized - no async needed)
 function verifyMandateSignature(mandate: any, payerSig: string): boolean {
   try {
     const recoveredAddress = ethers.verifyTypedData(
@@ -149,14 +267,18 @@ function verifyMandateSignature(mandate: any, payerSig: string): boolean {
     );
     return recoveredAddress.toLowerCase() === mandate.owner.toLowerCase();
   } catch (error) {
-    console.error("Signature verification failed:", error);
     return false;
   }
 }
 
-// Calculate mandate digest
+// Generate mandate digest
 function getMandateDigest(mandate: any): string {
-  return ethers.TypedDataEncoder.hash(DOMAIN, MANDATE_TYPES, mandate);
+  const encodedMandate = ethers.TypedDataEncoder.encode(
+    DOMAIN,
+    MANDATE_TYPES,
+    mandate
+  );
+  return ethers.keccak256(encodedMandate);
 }
 
 // Generate SP enqueue signature
@@ -165,25 +287,93 @@ async function generateEnqueueSignature(
   enqueueDeadline: number
 ): Promise<string> {
   const message = ethers.solidityPackedKeccak256(
-    ["bytes32", "address", "uint256"],
-    [mandateDigest, spWallet.address, enqueueDeadline]
+    ["bytes32", "uint256"],
+    [mandateDigest, enqueueDeadline]
   );
-  return await spWallet.signMessage(ethers.getBytes(message));
+  return spWallet.signMessage(ethers.getBytes(message));
 }
 
-// POST /enqueue endpoint
+// Sync wallet balance from chain
+async function syncWalletBalance(owner: string, token: string): Promise<void> {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+
+    const debitableBalance = await walletContract.debitableBalance(owner, token);
+    const withdrawLock = await walletContract.withdrawLocks(owner, token);
+
+    upsertWalletBalance.run(
+      owner,
+      token,
+      debitableBalance.toString(),
+      withdrawLock.locked.toString(),
+      Number(withdrawLock.unlockAt),
+      now
+    );
+
+    console.log(`[SYNC] Balance synced for ${owner.slice(0, 10)}... token ${token.slice(0, 10)}...`);
+  } catch (error) {
+    console.error(`[SYNC ERROR] Failed to sync balance for ${owner}:`, error);
+  }
+}
+
+// Check if wallet has sufficient balance (offchain check)
+function checkSufficientBalance(owner: string, token: string, amount: string): boolean {
+  const walletBalance = getWalletBalance.get(owner, token) as any;
+
+  if (!walletBalance) {
+    // Balance not synced yet, trigger sync in background and optimistically allow
+    setImmediate(() => syncWalletBalance(owner, token));
+    return true; // Optimistic approval
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const settlementWindow = 3 * 60 * 60;
+
+  const balance = BigInt(walletBalance.balance);
+  const locked = BigInt(walletBalance.locked);
+  const unlockAt = Number(walletBalance.unlock_at);
+
+  // Calculate available balance within settlement window
+  const availableInWindow =
+    unlockAt <= now + settlementWindow ? balance + locked : balance;
+
+  const required = BigInt(amount);
+
+  if (availableInWindow < required) {
+    console.warn(
+      `[BALANCE CHECK] Insufficient balance: ${owner.slice(0, 10)}... has ${availableInWindow}, needs ${required}`
+    );
+    return false;
+  }
+
+  return true;
+}
+
+// POST /enqueue endpoint (optimized for speed)
 app.post("/enqueue", async (req, res) => {
+  const startTime = Date.now();
+
   try {
     const { mandate, payerSig } = req.body;
 
     if (!mandate || !payerSig) {
       return res.status(400).json({
         error: "INVALID_REQUEST",
-        message: "mandate and payerSig are required",
+        message: "Mandate and payerSig required",
       });
     }
 
-    // 1. Verify signature
+    const now = Math.floor(Date.now() / 1000);
+
+    // 1. Quick validation: Check deadline (no async)
+    if (mandate.deadline < now) {
+      return res.status(400).json({
+        error: "EXPIRED_MANDATE",
+        message: "Mandate has expired",
+      });
+    }
+
+    // 2. Verify signature (sync operation, ~1-2ms)
     if (!verifyMandateSignature(mandate, payerSig)) {
       return res.status(400).json({
         error: "INVALID_SIGNATURE",
@@ -191,53 +381,35 @@ app.post("/enqueue", async (req, res) => {
       });
     }
 
-    // 2. Check deadline
-    const now = Math.floor(Date.now() / 1000);
-    if (mandate.deadline <= now) {
-      return res.status(400).json({
-        error: "MANDATE_EXPIRED",
-        message: "Mandate deadline has passed",
-      });
-    }
-
-    // 3. Check mandate digest uniqueness
+    // 3. Check mandate digest uniqueness (sync DB query, <1ms)
     const mandateDigest = getMandateDigest(mandate);
-    if (processedMandates.has(mandateDigest)) {
+    const existing = getMandateByDigest.get(mandateDigest);
+    if (existing) {
       return res.status(400).json({
         error: "DUPLICATE_MANDATE",
         message: "Mandate already processed",
       });
     }
 
-    // 4. Check on-chain debitable balance
-    const debitableBalance = await walletContract.debitableBalance(
-      mandate.owner,
-      mandate.token
-    );
+    // 4. Check nonce (offchain, <1ms)
+    const nonceUsed = isNonceUsed.get(mandate.owner, mandate.token, mandate.nonce.toString());
+    if (nonceUsed) {
+      return res.status(400).json({
+        error: "NONCE_USED",
+        message: "Nonce already used",
+      });
+    }
 
-    // 5. Check withdraw locks
-    const withdrawLock = await walletContract.withdrawLocks(
-      mandate.owner,
-      mandate.token
-    );
-
-    // Calculate available balance within settlement window (3 hours)
-    const settlementWindow = 3 * 60 * 60; // 3 hours in seconds
-    const availableInWindow =
-      withdrawLock.unlockAt <= now + settlementWindow
-        ? debitableBalance + withdrawLock.locked
-        : debitableBalance;
-
-    if (availableInWindow < mandate.amount) {
+    // 5. Check balance (offchain, <1ms)
+    if (!checkSufficientBalance(mandate.owner, mandate.token, mandate.amount.toString())) {
       return res.status(402).json({
         error: "INSUFFICIENT_BALANCE",
         message: "Insufficient debitable balance for settlement",
-        available: availableInWindow.toString(),
-        required: mandate.amount.toString(),
       });
     }
 
     // 6. Generate SP commitment signature
+    const settlementWindow = 3 * 60 * 60; // 3 hours in seconds
     const enqueueDeadline = now + settlementWindow;
     const spEnqueueSig = await generateEnqueueSignature(
       mandateDigest,
@@ -251,24 +423,37 @@ app.post("/enqueue", async (req, res) => {
       spEnqueueSig,
     };
 
-    // 7. Add to settlement queue
-    const queueItem: QueueItem = {
-      mandate,
-      payerSig,
-      receipt,
-      retries: 0,
-      status: "enqueued",
-      enqueuedAt: now,
-    };
+    // 7. Insert into database and mark nonce as used (atomic transaction)
+    const transaction = db.transaction(() => {
+      insertMandate.run(
+        mandateDigest,
+        mandate.owner,
+        mandate.token,
+        mandate.payee,
+        mandate.amount.toString(),
+        mandate.nonce.toString(),
+        mandate.deadline,
+        mandate.ref,
+        payerSig,
+        spEnqueueSig,
+        enqueueDeadline,
+        "enqueued",
+        now
+      );
 
-    settlementQueue.push(queueItem);
-    mandateHistory.push(queueItem);
-    processedMandates.add(mandateDigest);
+      markNonceUsed.run(
+        mandate.owner,
+        mandate.token,
+        mandate.nonce.toString(),
+        now
+      );
+    });
 
-    saveData();
+    transaction();
 
+    const duration = Date.now() - startTime;
     console.log(
-      `[ENQUEUE] Mandate ${mandateDigest.slice(0, 10)}... added to queue`
+      `[ENQUEUE] Mandate ${mandateDigest.slice(0, 10)}... added to queue (${duration}ms)`
     );
 
     res.json({
@@ -286,35 +471,45 @@ app.post("/enqueue", async (req, res) => {
 
 // Health check
 app.get("/health", (req, res) => {
+  const stats = getStats.get() as any;
+  const history = getAllMandates.all();
+
   res.json({
     status: "ok",
     sp: spWallet.address,
     wallet: WALLET_ADDR,
-    queueLength: settlementQueue.length,
-    settled: settledCount,
-    history: mandateHistory.map((item) => ({
-      mandateDigest: item.receipt.mandateDigest,
-      owner: item.mandate.owner,
-      payee: item.mandate.payee,
-      amount: item.mandate.amount,
-      status: item.status,
-      enqueuedAt: item.enqueuedAt,
-      settledAt: item.settledAt,
-    })),
+    queueLength: stats.queued || 0,
+    settled: stats.settled || 0,
+    failed: stats.failed || 0,
+    history,
   });
 });
 
 // Settlement worker
 async function settlementWorker() {
-  if (settlementQueue.length === 0) return;
+  const queuedMandates = getQueuedMandates.all() as any[];
 
-  const item = settlementQueue[0];
-  const { mandate, payerSig } = item;
+  if (queuedMandates.length === 0) return;
+
+  const item = queuedMandates[0];
+  const now = Math.floor(Date.now() / 1000);
+  updateMandateSettling.run(now, null, item.mandate_digest);
 
   try {
     console.log(
-      `[WORKER] Processing settlement for ${item.receipt.mandateDigest.slice(0, 10)}...`
+      `[WORKER] Processing settlement for ${item.mandate_digest.slice(0, 10)}...`
     );
+
+    // Reconstruct mandate
+    const mandate = {
+      owner: item.owner,
+      token: item.token,
+      payee: item.payee,
+      amount: item.amount,
+      nonce: item.nonce,
+      deadline: item.deadline,
+      ref: item.ref,
+    };
 
     // Convert mandate object to tuple format for contract call
     const mandateTuple = [
@@ -328,7 +523,7 @@ async function settlementWorker() {
     ];
 
     // Call contract settle function
-    const tx = await walletContract.settle(mandateTuple, payerSig, {
+    const tx = await walletContract.settle(mandateTuple, item.payer_sig, {
       gasLimit: 300000,
     });
 
@@ -341,28 +536,24 @@ async function settlementWorker() {
     }
 
     console.log(
-      `[WORKER] Settlement successful for ${item.receipt.mandateDigest.slice(0, 10)}...`
+      `[WORKER] Settlement successful for ${item.mandate_digest.slice(0, 10)}...`
     );
 
-    // Update item status
-    item.status = "settled";
-    item.settledAt = Math.floor(Date.now() / 1000);
+    // Update status and offchain balance (atomic transaction)
+    const now = Math.floor(Date.now() / 1000);
+    const updateTransaction = db.transaction(() => {
+      updateMandateSettled.run(now, tx.hash, item.mandate_digest);
 
-    // Update history
-    const historyItem = mandateHistory.find(
-      (h) => h.receipt.mandateDigest === item.receipt.mandateDigest
-    );
-    if (historyItem) {
-      historyItem.status = "settled";
-      historyItem.settledAt = item.settledAt;
-    }
+      // Update offchain balance
+      updateWalletBalanceAfterSettle.run(
+        item.amount,
+        now,
+        item.owner,
+        item.token
+      );
+    });
 
-    settledCount++;
-
-    // Remove from queue
-    settlementQueue.shift();
-
-    saveData();
+    updateTransaction();
   } catch (error: any) {
     const errorMsg = error.message || String(error);
     console.error("[WORKER ERROR]", errorMsg);
@@ -370,64 +561,44 @@ async function settlementWorker() {
     // Check if transaction execution reverted
     if (errorMsg.includes("transaction execution reverted") || errorMsg.includes("Transaction reverted")) {
       console.log(
-        `[WORKER] Transaction reverted for ${item.receipt.mandateDigest.slice(0, 10)}..., removing from queue`
+        `[WORKER] Transaction reverted for ${item.mandate_digest.slice(0, 10)}..., marking as failed`
       );
-
-      // Update history status
-      item.status = "failed";
-      const historyItem = mandateHistory.find(
-        (h) => h.receipt.mandateDigest === item.receipt.mandateDigest
-      );
-      if (historyItem) {
-        historyItem.status = "failed";
-      }
-
-      settlementQueue.shift();
-      saveData();
+      updateMandateFailed.run(item.mandate_digest);
       return;
     }
 
-    // Check if transaction already known (already submitted/mined)
+    // Check if transaction already known
     if (errorMsg.includes("already known") || errorMsg.includes("nonce too low") || errorMsg.includes("could not coalesce error")) {
       console.log(
-        `[WORKER] Transaction already submitted for ${item.receipt.mandateDigest.slice(0, 10)}..., removing from queue`
+        `[WORKER] Transaction already submitted for ${item.mandate_digest.slice(0, 10)}..., marking as settled`
       );
-      settlementQueue.shift();
-      saveData();
+      const now = Math.floor(Date.now() / 1000);
+      updateMandateSettled.run(now, null, item.mandate_digest);
       return;
     }
 
-    // Check if nonce already used (settlement already completed)
+    // Check if nonce already used
     if (errorMsg.includes("Nonce already used") || errorMsg.includes("already used")) {
       console.log(
-        `[WORKER] Settlement already completed for ${item.receipt.mandateDigest.slice(0, 10)}..., removing from queue`
+        `[WORKER] Settlement already completed for ${item.mandate_digest.slice(0, 10)}...`
       );
-      settlementQueue.shift();
-      saveData();
+      const now = Math.floor(Date.now() / 1000);
+      updateMandateSettled.run(now, null, item.mandate_digest);
       return;
     }
 
-    // Simple retry logic (PoC)
-    item.retries++;
-    if (item.retries >= 3) {
+    // Simple retry logic
+    updateMandateRetries.run(item.mandate_digest);
+    const updatedItem = getMandateByDigest.get(item.mandate_digest) as any;
+
+    if (updatedItem.retries >= 3) {
       console.error(
-        `[WORKER] Max retries reached for ${item.receipt.mandateDigest.slice(0, 10)}..., removing from queue`
+        `[WORKER] Max retries reached for ${item.mandate_digest.slice(0, 10)}..., marking as failed`
       );
-
-      // Update history status
-      item.status = "failed";
-      const historyItem = mandateHistory.find(
-        (h) => h.receipt.mandateDigest === item.receipt.mandateDigest
-      );
-      if (historyItem) {
-        historyItem.status = "failed";
-      }
-
-      settlementQueue.shift();
-      saveData();
+      updateMandateFailed.run(item.mandate_digest);
     } else {
       console.log(
-        `[WORKER] Retry ${item.retries}/3 for ${item.receipt.mandateDigest.slice(0, 10)}...`
+        `[WORKER] Retry ${updatedItem.retries}/3 for ${item.mandate_digest.slice(0, 10)}...`
       );
     }
   }
@@ -438,9 +609,19 @@ setInterval(settlementWorker, 1500);
 
 // Start server
 app.listen(PORT, () => {
-  console.log("=== AEP2 Settlement Processor Started ===");
+  console.log("=== AEP2 Settlement Processor Started (SQLite) ===");
   console.log(`SP Address: ${spWallet.address}`);
   console.log(`Wallet Contract: ${WALLET_ADDR}`);
-  console.log(`Listening on port ${PORT}`);
-  console.log(`RPC: ${RPC}`);
+  console.log(`Database: ${DB_FILE}`);
+  console.log(`Port: ${PORT}`);
+
+  const stats = getStats.get() as any;
+  console.log(`Loaded: ${stats.queued} queued, ${stats.settled} settled, ${stats.failed} failed`);
+});
+
+// Graceful shutdown
+process.on("SIGINT", () => {
+  console.log("\nClosing database...");
+  db.close();
+  process.exit(0);
 });
